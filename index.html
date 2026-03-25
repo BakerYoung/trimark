@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TriMark</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Workspace</p>
+            <h1>TriMark</h1>
+          </div>
+          <div class="head-actions">
+            <button id="new-folder-btn" class="icon-btn" type="button" title="新建文件夹">□</button>
+            <button id="new-file-btn" class="icon-btn" type="button" title="新建文件">+</button>
+          </div>
+        </div>
+
+        <div class="sidebar-tools">
+          <button id="import-btn" class="secondary-btn" type="button">导入 .md</button>
+          <button id="import-folder-btn" class="secondary-btn" type="button">导入文件夹</button>
+          <button id="export-btn" class="secondary-btn sidebar-span-2" type="button">导出当前</button>
+          <input id="file-input" type="file" accept=".md,.markdown,.txt" multiple hidden />
+          <input id="folder-input" type="file" webkitdirectory directory multiple hidden />
+        </div>
+
+        <div id="file-list" class="file-list" aria-label="Markdown 文件树"></div>
+      </aside>
+
+      <div id="sidebar-resizer" class="sidebar-resizer" aria-hidden="true"></div>
+
+      <main id="main-panel" class="main-panel">
+        <section class="editor-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Editor</p>
+              <input id="title-input" class="title-input" type="text" aria-label="文件名" />
+            </div>
+            <div class="meta-group">
+              <span id="save-indicator" class="status-pill">已保存</span>
+              <button id="delete-btn" class="danger-btn" type="button">删除</button>
+            </div>
+          </div>
+
+          <div class="editor-toolbar">
+            <button data-insert="# " type="button">H1</button>
+            <button data-insert="## " type="button">H2</button>
+            <button data-insert="**粗体**" type="button">粗体</button>
+            <button data-insert="- 列表项" type="button">列表</button>
+            <button data-insert="```\\n代码块\\n```" type="button">代码</button>
+            <button data-insert="[链接](https://)" type="button">链接</button>
+          </div>
+
+          <textarea
+            id="editor"
+            class="editor"
+            spellcheck="false"
+            aria-label="Markdown 编辑器"
+            placeholder="开始写作..."
+          ></textarea>
+        </section>
+
+        <div id="panel-resizer" class="panel-resizer" aria-hidden="true"></div>
+
+        <section class="preview-panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Preview</p>
+              <h2>实时预览</h2>
+            </div>
+            <span id="word-count" class="status-pill">0 字</span>
+          </div>
+          <article id="preview" class="preview markdown-body"></article>
+        </section>
+      </main>
+    </div>
+    <script src="./app.js"></script>
+  </body>
+</html>

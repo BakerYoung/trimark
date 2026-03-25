@@ -14,19 +14,31 @@
             <p class="eyebrow">Workspace</p>
             <h1>TriMark</h1>
           </div>
-          <div class="head-actions">
-            <button id="new-folder-btn" class="icon-btn" type="button" title="新建文件夹">□</button>
-            <button id="new-file-btn" class="icon-btn" type="button" title="新建文件">+</button>
-          </div>
+          <div class="head-actions"></div>
         </div>
 
         <div class="sidebar-tools">
-          <button id="import-btn" class="secondary-btn" type="button">导入 .md</button>
-          <button id="import-folder-btn" class="secondary-btn" type="button">导入文件夹</button>
-          <button id="export-btn" class="secondary-btn sidebar-span-2" type="button">导出当前</button>
+          <div class="menu-anchor">
+            <button id="create-menu-btn" class="secondary-btn full-width" type="button">创建</button>
+            <div id="create-menu" class="floating-menu floating-menu-wide" hidden>
+              <button id="create-file-action" class="floating-menu-item" type="button">创建 MD</button>
+              <button id="create-folder-action" class="floating-menu-item" type="button">创建文件夹</button>
+            </div>
+          </div>
+          <div class="menu-anchor">
+            <button id="open-menu-btn" class="secondary-btn full-width" type="button">打开</button>
+            <div id="open-menu" class="floating-menu floating-menu-wide" hidden>
+              <button id="pick-file-btn" class="floating-menu-item" type="button">打开 MD</button>
+              <button id="pick-folder-btn" class="floating-menu-item" type="button">打开文件夹</button>
+            </div>
+          </div>
           <input id="file-input" type="file" accept=".md,.markdown,.txt" multiple hidden />
           <input id="folder-input" type="file" webkitdirectory directory multiple hidden />
         </div>
+
+        <p id="workspace-hint" class="workspace-hint">
+          Chromium 浏览器可直接写回本地文件；不支持时会退回为临时工作区。
+        </p>
 
         <div id="file-list" class="file-list" aria-label="Markdown 文件树"></div>
       </aside>
@@ -77,6 +89,30 @@
           <article id="preview" class="preview markdown-body"></article>
         </section>
       </main>
+    </div>
+
+    <div id="context-menu" class="floating-menu context-menu" hidden>
+      <button id="context-rename" class="floating-menu-item" type="button">重命名</button>
+      <button id="context-move" class="floating-menu-item" type="button">移动到...</button>
+      <button id="context-delete" class="floating-menu-item danger-text" type="button">删除文件</button>
+      <button id="context-create-file" class="floating-menu-item" type="button">创建 MD</button>
+      <button id="context-create-folder" class="floating-menu-item" type="button">创建文件夹</button>
+    </div>
+
+    <div id="move-dialog" class="modal-backdrop" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="move-dialog-title">
+        <div class="modal-head">
+          <h3 id="move-dialog-title">移动文件</h3>
+          <button id="move-dialog-close" class="icon-btn" type="button" title="关闭">×</button>
+        </div>
+        <p id="move-dialog-file" class="modal-copy"></p>
+        <label class="modal-label" for="move-target-select">目标文件夹</label>
+        <select id="move-target-select" class="modal-select"></select>
+        <div class="modal-actions">
+          <button id="move-cancel" class="secondary-btn" type="button">取消</button>
+          <button id="move-confirm" class="secondary-btn" type="button">确认移动</button>
+        </div>
+      </div>
     </div>
     <script src="./app.js"></script>
   </body>

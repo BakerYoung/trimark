@@ -1,4 +1,4 @@
-const STORAGE_KEY = "trimark.workspace.v2";
+const STORAGE_KEY = "trimark.workspace.v3";
 const LEGACY_STORAGE_KEY = "trimark.workspace.v1";
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 520;
@@ -10,16 +10,20 @@ const elements = {
   editor: document.querySelector("#editor"),
   preview: document.querySelector("#preview"),
   titleInput: document.querySelector("#title-input"),
-  newFileBtn: document.querySelector("#new-file-btn"),
-  newFolderBtn: document.querySelector("#new-folder-btn"),
+  createMenuBtn: document.querySelector("#create-menu-btn"),
+  createMenu: document.querySelector("#create-menu"),
+  createFileAction: document.querySelector("#create-file-action"),
+  createFolderAction: document.querySelector("#create-folder-action"),
+  openMenuBtn: document.querySelector("#open-menu-btn"),
+  openMenu: document.querySelector("#open-menu"),
+  pickFileBtn: document.querySelector("#pick-file-btn"),
+  pickFolderBtn: document.querySelector("#pick-folder-btn"),
   deleteBtn: document.querySelector("#delete-btn"),
-  importBtn: document.querySelector("#import-btn"),
-  importFolderBtn: document.querySelector("#import-folder-btn"),
-  exportBtn: document.querySelector("#export-btn"),
   fileInput: document.querySelector("#file-input"),
   folderInput: document.querySelector("#folder-input"),
   saveIndicator: document.querySelector("#save-indicator"),
   wordCount: document.querySelector("#word-count"),
+  workspaceHint: document.querySelector("#workspace-hint"),
   toolbarButtons: document.querySelectorAll(".editor-toolbar button"),
   appShell: document.querySelector(".app-shell"),
   sidebar: document.querySelector(".sidebar"),
@@ -28,12 +32,34 @@ const elements = {
   mainPanel: document.querySelector("#main-panel"),
   editorPanel: document.querySelector(".editor-panel"),
   previewPanel: document.querySelector(".preview-panel"),
+  contextMenu: document.querySelector("#context-menu"),
+  contextRename: document.querySelector("#context-rename"),
+  contextMove: document.querySelector("#context-move"),
+  contextDelete: document.querySelector("#context-delete"),
+  contextCreateFile: document.querySelector("#context-create-file"),
+  contextCreateFolder: document.querySelector("#context-create-folder"),
+  moveDialog: document.querySelector("#move-dialog"),
+  moveDialogFile: document.querySelector("#move-dialog-file"),
+  moveTargetSelect: document.querySelector("#move-target-select"),
+  moveDialogClose: document.querySelector("#move-dialog-close"),
+  moveCancel: document.querySelector("#move-cancel"),
+  moveConfirm: document.querySelector("#move-confirm"),
+};
+
+const runtime = {
+  supportsFileSystemAccess: typeof window.showOpenFilePicker === "function" && typeof window.showDirectoryPicker === "function",
+  fileHandles: new Map(),
+  folderHandles: new Map(),
 };
 
 const state = loadWorkspace();
 let saveTimer = null;
+let diskSaveTimer = null;
 let panelResizerState = null;
 let sidebarResizerState = null;
+let activeMenu = null;
+let contextTarget = null;
+let movingFileId = null;
 
 render();
 bindEvents();
@@ -99,6 +125,7 @@ function createStarterWorkspace() {
           "> 你现在也可以导入整个文件夹。",
         ].join("\n"),
         updatedAt: Date.now(),
+        source: "workspace",
       },
     ],
   };
@@ -138,6 +165,7 @@ function normalizeWorkspace(data) {
         ...file,
         folderId: folderIds.has(file.folderId) ? file.folderId : defaultFolderId,
         updatedAt: Number(file.updatedAt) || Date.now(),
+        source: file.source === "local" ? "local" : "workspace",
       }))
     : createStarterWorkspace().files.map((file) => ({
         ...file,
@@ -155,6 +183,7 @@ function normalizeWorkspace(data) {
 
   return {
     activeId,
+    activeFolderId: folderIds.has(data.activeFolderId) ? data.activeFolderId : defaultFolderId,
     sidebarWidth: clamp(Number(data.sidebarWidth) || 280, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH),
     panelRatio: clamp(Number(data.panelRatio) || 0.5, 0.32, 0.68),
     expandedFolders,
@@ -164,17 +193,40 @@ function normalizeWorkspace(data) {
 }
 
 function bindEvents() {
-  elements.newFileBtn.addEventListener("click", createFile);
-  elements.newFolderBtn.addEventListener("click", createFolder);
+  elements.createMenuBtn.addEventListener("click", (event) => toggleMenu(event, elements.createMenu));
+  elements.openMenuBtn.addEventListener("click", (event) => toggleMenu(event, elements.openMenu));
+  elements.createFileAction.addEventListener("click", () => {
+    closeFloatingMenus();
+    createFile();
+  });
+  elements.createFolderAction.addEventListener("click", () => {
+    closeFloatingMenus();
+    createFolder();
+  });
+  elements.pickFileBtn.addEventListener("click", () => {
+    closeFloatingMenus();
+    chooseLocalFiles();
+  });
+  elements.pickFolderBtn.addEventListener("click", () => {
+    closeFloatingMenus();
+    chooseLocalFolder();
+  });
   elements.deleteBtn.addEventListener("click", deleteActiveFile);
-  elements.importBtn.addEventListener("click", () => elements.fileInput.click());
-  elements.importFolderBtn.addEventListener("click", () => elements.folderInput.click());
-  elements.exportBtn.addEventListener("click", exportActiveFile);
   elements.fileInput.addEventListener("change", importFiles);
   elements.folderInput.addEventListener("change", importFolder);
 
-  elements.titleInput.addEventListener("input", (event) => {
-    updateActiveFile({ name: normalizeFileName(event.target.value) || "untitled.md" });
+  elements.titleInput.addEventListener("blur", commitTitleRename);
+  elements.titleInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitTitleRename();
+      elements.titleInput.blur();
+    }
+
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+      event.preventDefault();
+      saveActiveFile();
+    }
   });
 
   elements.editor.addEventListener("input", (event) => {
@@ -191,8 +243,7 @@ function bindEvents() {
 
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();
-      persistWorkspace();
-      elements.saveIndicator.textContent = "已保存";
+      saveActiveFile();
     }
   });
 
@@ -202,10 +253,25 @@ function bindEvents() {
 
   elements.sidebarResizer.addEventListener("pointerdown", startSidebarResize);
   elements.resizer.addEventListener("pointerdown", startResize);
+  elements.contextRename.addEventListener("click", triggerRenameFromContext);
+  elements.contextMove.addEventListener("click", openMoveDialogFromContext);
+  elements.contextDelete.addEventListener("click", deleteFileFromContext);
+  elements.contextCreateFile.addEventListener("click", createFileFromContextFolder);
+  elements.contextCreateFolder.addEventListener("click", createFolderFromContextFolder);
+  elements.moveDialogClose.addEventListener("click", closeMoveDialog);
+  elements.moveCancel.addEventListener("click", closeMoveDialog);
+  elements.moveConfirm.addEventListener("click", confirmMoveFile);
+  elements.moveDialog.addEventListener("click", (event) => {
+    if (event.target === elements.moveDialog) {
+      closeMoveDialog();
+    }
+  });
   window.addEventListener("pointermove", onSidebarResize);
   window.addEventListener("pointermove", onResize);
   window.addEventListener("pointerup", stopSidebarResize);
   window.addEventListener("pointerup", stopResize);
+  document.addEventListener("click", handleDocumentClick);
+  document.addEventListener("keydown", handleDocumentKeydown);
   window.addEventListener("resize", () => {
     applySidebarWidth();
     applyPanelRatio();
@@ -213,10 +279,41 @@ function bindEvents() {
 }
 
 function render() {
+  renderWorkspaceHint();
   renderFileTree();
   renderActiveFile();
   applySidebarWidth();
   applyPanelRatio();
+}
+
+function renderWorkspaceHint() {
+  if (!runtime.supportsFileSystemAccess) {
+    elements.workspaceHint.textContent = "当前浏览器不支持本地直写。请使用 Chrome / Edge，并通过“打开文件夹”接入本地目录。";
+    return;
+  }
+
+  const hasWritableFolder = state.folders.some((folder) => runtime.folderHandles.has(folder.id));
+  elements.workspaceHint.textContent = hasWritableFolder
+    ? "当前已连接本地文件夹，创建和保存会直接写入磁盘。"
+    : "当前未连接本地文件夹。请先使用“打开 -> 打开文件夹”，否则无法创建本地文件。";
+}
+
+function toggleMenu(event, menu) {
+  event.stopPropagation();
+  event.preventDefault();
+  if (activeMenu === menu) {
+    closeFloatingMenus();
+    return;
+  }
+  closeFloatingMenus();
+  menu.hidden = false;
+  activeMenu = menu;
+}
+
+function closeFloatingMenus() {
+  elements.createMenu.hidden = true;
+  elements.openMenu.hidden = true;
+  activeMenu = null;
 }
 
 function renderFileTree() {
@@ -234,20 +331,32 @@ function buildFolderNode(folder, depth) {
   wrapper.className = "tree-node";
 
   const row = document.createElement("div");
-  row.className = "tree-row tree-folder";
+  row.className = `tree-row tree-folder${folder.id === state.activeFolderId ? " is-active" : ""}${contextTarget?.type === "folder" && folder.id === contextTarget.id ? " is-context" : ""}`;
   row.style.setProperty("--depth", depth);
+  row.addEventListener("click", () => selectFolder(folder.id));
+  row.addEventListener("contextmenu", (event) => openFolderContextMenu(event, folder.id));
 
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "tree-toggle";
   toggle.textContent = isFolderExpanded(folder.id) ? "▾" : "▸";
-  toggle.addEventListener("click", () => toggleFolder(folder.id));
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleFolder(folder.id);
+  });
 
   const name = document.createElement("button");
   name.type = "button";
   name.className = "tree-label";
   name.innerHTML = `<span class="tree-icon">⌘</span><span>${escapeHtml(folder.name)}</span>`;
-  name.addEventListener("click", () => toggleFolder(folder.id));
+  name.addEventListener("click", (event) => {
+    event.stopPropagation();
+    selectFolder(folder.id);
+  });
+  name.addEventListener("dblclick", (event) => {
+    event.stopPropagation();
+    toggleFolder(folder.id);
+  });
 
   const meta = document.createElement("span");
   meta.className = "tree-meta";
@@ -281,20 +390,22 @@ function buildFolderNode(folder, depth) {
 function buildFileNode(file, depth) {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = `tree-row tree-file${file.id === state.activeId ? " is-active" : ""}`;
+  button.className = `tree-row tree-file${file.id === state.activeId ? " is-active" : ""}${contextTarget?.type === "file" && file.id === contextTarget.id ? " is-context" : ""}`;
   button.style.setProperty("--depth", depth);
   button.innerHTML = [
     '<span class="tree-file-mark"></span>',
     `<span class="tree-label"><span class="tree-icon">#</span><span>${escapeHtml(file.name)}</span></span>`,
-    `<span class="tree-meta">${formatTime(file.updatedAt)}</span>`,
+    `<span class="tree-meta">${file.source === "local" ? "LOCAL" : formatTime(file.updatedAt)}</span>`,
   ].join("");
 
   button.addEventListener("click", () => {
     state.activeId = file.id;
+    state.activeFolderId = file.folderId;
     ensureFolderPathExpanded(file.folderId);
     persistWorkspace();
     render();
   });
+  button.addEventListener("contextmenu", (event) => openFileContextMenu(event, file.id));
 
   return button;
 }
@@ -306,6 +417,11 @@ function renderActiveFile() {
   }
 
   elements.titleInput.value = activeFile.name;
+  elements.titleInput.dataset.originalName = activeFile.name;
+  elements.titleInput.readOnly = false;
+  elements.titleInput.title = activeFile.source === "local" && !runtime.folderHandles.has(activeFile.folderId)
+    ? "这个本地文件缺少父目录权限，暂时不能在网页内重命名"
+    : "";
   elements.editor.value = activeFile.content;
   elements.preview.innerHTML = renderMarkdown(activeFile.content);
   elements.wordCount.textContent = `${countWords(activeFile.content)} 字`;
@@ -315,48 +431,108 @@ function getActiveFile() {
   return state.files.find((file) => file.id === state.activeId) || state.files[0] || null;
 }
 
-function createFile() {
-  const parentFolderId = getActiveFile()?.folderId || getDefaultFolderId();
+async function createFile(parentFolderId = state.activeFolderId || getActiveFile()?.folderId || getDefaultFolderId()) {
+  const resolvedFolderId = resolveWritableFolderId(parentFolderId);
+  const parentHandle = runtime.folderHandles.get(resolvedFolderId);
+  if (!parentHandle) {
+    elements.saveIndicator.textContent = "请先打开本地文件夹";
+    return;
+  }
   const id = crypto.randomUUID();
+  const name = nextUntitledName(resolvedFolderId);
+  let fileHandle = null;
+
+  if (parentHandle) {
+    try {
+      fileHandle = await parentHandle.getFileHandle(name, { create: true });
+    } catch (error) {
+      elements.saveIndicator.textContent = "创建失败";
+      console.error("Failed to create local file", error);
+      return;
+    }
+  }
 
   state.files.unshift({
     id,
-    folderId: parentFolderId,
-    name: nextUntitledName(parentFolderId),
+    folderId: resolvedFolderId,
+    name,
     content: "",
     updatedAt: Date.now(),
+    source: "local",
   });
 
+  if (fileHandle) {
+    runtime.fileHandles.set(id, fileHandle);
+    try {
+      await writeFileHandle(fileHandle, "");
+    } catch (error) {
+      elements.saveIndicator.textContent = "初始化失败";
+      console.error("Failed to initialize local file", error);
+    }
+  }
   state.activeId = id;
-  ensureFolderPathExpanded(parentFolderId);
+  state.activeFolderId = resolvedFolderId;
+  ensureFolderPathExpanded(resolvedFolderId);
   persistWorkspace();
   render();
-  elements.titleInput.focus();
-  elements.titleInput.select();
+  elements.editor.focus();
+  elements.saveIndicator.textContent = "本地已创建";
 }
 
-function createFolder() {
-  const parentFolderId = getActiveFile()?.folderId || null;
+async function createFolder(parentFolderId = state.activeFolderId || getActiveFile()?.folderId || null) {
+  const resolvedParentId = resolveWritableFolderId(parentFolderId);
   const id = crypto.randomUUID();
+  const name = nextFolderName(resolvedParentId);
+  const parentHandle = resolvedParentId ? runtime.folderHandles.get(resolvedParentId) : null;
+  if (!parentHandle) {
+    elements.saveIndicator.textContent = "请先打开本地文件夹";
+    return;
+  }
+  let folderHandle = null;
+
+  if (resolvedParentId && parentHandle) {
+    try {
+      folderHandle = await parentHandle.getDirectoryHandle(name, { create: true });
+    } catch (error) {
+      elements.saveIndicator.textContent = "创建失败";
+      console.error("Failed to create local folder", error);
+      return;
+    }
+  }
 
   state.folders.push({
     id,
-    name: nextFolderName(parentFolderId),
-    parentId: parentFolderId,
+    name,
+    parentId: resolvedParentId,
   });
 
+  if (folderHandle) {
+    runtime.folderHandles.set(id, folderHandle);
+  }
+  state.activeFolderId = id;
   state.expandedFolders.push(id);
-  if (parentFolderId) {
-    ensureFolderPathExpanded(parentFolderId);
+  if (resolvedParentId) {
+    ensureFolderPathExpanded(resolvedParentId);
   }
   persistWorkspace();
   render();
 }
 
-function deleteActiveFile() {
+async function deleteActiveFile() {
   const activeFile = getActiveFile();
   if (!activeFile) {
     return;
+  }
+  closeContextMenu();
+
+  if (activeFile.source === "local") {
+    try {
+      await deleteLocalFile(activeFile);
+    } catch (error) {
+      elements.saveIndicator.textContent = "删除失败";
+      console.error("Failed to delete local file", error);
+      return;
+    }
   }
 
   if (state.files.length === 1) {
@@ -372,6 +548,7 @@ function deleteActiveFile() {
       },
     ];
     state.activeId = id;
+    state.activeFolderId = fallbackFolderId;
     ensureFolderPathExpanded(fallbackFolderId);
     persistWorkspace();
     render();
@@ -380,6 +557,7 @@ function deleteActiveFile() {
 
   state.files = state.files.filter((file) => file.id !== activeFile.id);
   state.activeId = state.files[0]?.id || null;
+  state.activeFolderId = getActiveFile()?.folderId || getDefaultFolderId();
   ensureFolderPathExpanded(getActiveFile()?.folderId);
   persistWorkspace();
   render();
@@ -400,14 +578,23 @@ function updateActiveFile(patch) {
 
   persistWorkspace();
   render();
+  queueDiskSync(state.activeId);
 }
 
 function toggleFolder(folderId) {
+  closeContextMenu();
   if (isFolderExpanded(folderId)) {
     state.expandedFolders = state.expandedFolders.filter((id) => id !== folderId);
   } else {
     state.expandedFolders.push(folderId);
   }
+  persistWorkspace();
+  render();
+}
+
+function selectFolder(folderId) {
+  state.activeFolderId = folderId;
+  ensureFolderPathExpanded(folderId);
   persistWorkspace();
   render();
 }
@@ -426,6 +613,86 @@ function markSaving() {
   saveTimer = window.setTimeout(() => {
     elements.saveIndicator.textContent = "已保存";
   }, 260);
+}
+
+function queueDiskSync(fileId) {
+  clearTimeout(diskSaveTimer);
+  const file = state.files.find((entry) => entry.id === fileId);
+  if (!file || file.source !== "local" || !runtime.fileHandles.has(file.id)) {
+    return;
+  }
+
+  diskSaveTimer = window.setTimeout(async () => {
+    try {
+      await writeFileHandle(runtime.fileHandles.get(file.id), file.content);
+      elements.saveIndicator.textContent = "已同步";
+    } catch (error) {
+      elements.saveIndicator.textContent = "同步失败";
+      console.error("Failed to sync file to disk", error);
+    }
+  }, 280);
+}
+
+async function saveActiveFile() {
+  clearTimeout(diskSaveTimer);
+  const activeFile = getActiveFile();
+  if (!activeFile) {
+    return;
+  }
+
+  persistWorkspace();
+
+  if (activeFile.source !== "local") {
+    elements.saveIndicator.textContent = "已保存";
+    return;
+  }
+
+  const handle = runtime.fileHandles.get(activeFile.id);
+  if (!handle) {
+    elements.saveIndicator.textContent = "无法写回本地";
+    return;
+  }
+
+  try {
+    await writeFileHandle(handle, activeFile.content);
+    elements.saveIndicator.textContent = "已同步";
+  } catch (error) {
+    elements.saveIndicator.textContent = "同步失败";
+    console.error("Failed to save active local file", error);
+  }
+}
+
+async function commitTitleRename() {
+  const activeFile = getActiveFile();
+  if (!activeFile) {
+    return;
+  }
+
+  const nextName = normalizeFileName(elements.titleInput.value) || activeFile.name;
+  const prevName = elements.titleInput.dataset.originalName || activeFile.name;
+  if (nextName === prevName) {
+    elements.titleInput.value = activeFile.name;
+    return;
+  }
+
+  if (activeFile.source === "local") {
+    try {
+      await renameLocalFile(activeFile, nextName);
+    } catch (error) {
+      elements.saveIndicator.textContent = "重命名失败";
+      elements.titleInput.value = activeFile.name;
+      console.error("Failed to rename local file", error);
+      return;
+    }
+  }
+
+  state.files = state.files.map((file) => (
+    file.id === activeFile.id
+      ? { ...file, name: nextName, updatedAt: Date.now() }
+      : file
+  ));
+  persistWorkspace();
+  render();
 }
 
 function normalizeFileName(name) {
@@ -490,6 +757,46 @@ function insertAtCursor(snippet) {
   updateActiveFile({ content: next });
 }
 
+async function chooseLocalFiles() {
+  if (runtime.supportsFileSystemAccess) {
+    try {
+      const handles = await window.showOpenFilePicker({
+        multiple: true,
+        types: [
+          {
+            description: "Markdown Files",
+            accept: { "text/markdown": [".md", ".markdown"], "text/plain": [".txt"] },
+          },
+        ],
+      });
+      await ingestPickedFiles(handles);
+      return;
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        console.error("Failed to pick local files", error);
+      }
+      return;
+    }
+  }
+  elements.fileInput.click();
+}
+
+async function chooseLocalFolder() {
+  if (runtime.supportsFileSystemAccess) {
+    try {
+      const handle = await window.showDirectoryPicker();
+      await ingestPickedDirectory(handle);
+      return;
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        console.error("Failed to pick local folder", error);
+      }
+      return;
+    }
+  }
+  elements.folderInput.click();
+}
+
 function importFiles(event) {
   const files = Array.from(event.target.files || []);
   if (!files.length) {
@@ -505,9 +812,11 @@ function importFiles(event) {
         name: normalizeFileName(file.name) || nextUntitledName(targetFolderId),
         content,
         updatedAt: Date.now(),
+        source: "workspace",
       });
     });
     state.activeId = state.files[0].id;
+    state.activeFolderId = targetFolderId;
     ensureFolderPathExpanded(targetFolderId);
     persistWorkspace();
     render();
@@ -560,10 +869,12 @@ function importFolder(event) {
         name: normalizeFileName(parts.at(-1)) || nextUntitledName(parentId),
         content,
         updatedAt: Date.now(),
+        source: "workspace",
       });
     });
 
     state.activeId = state.files[state.files.length - files.length]?.id || state.activeId;
+    state.activeFolderId = getActiveFile()?.folderId || rootImportId;
     ensureFolderPathExpanded(getActiveFile()?.folderId);
     persistWorkspace();
     render();
@@ -584,23 +895,118 @@ function readTextFile(file) {
   });
 }
 
-function exportActiveFile() {
-  const activeFile = getActiveFile();
-  if (!activeFile) {
-    return;
+async function ingestPickedFiles(handles) {
+  let rootFolderId = state.folders.find((folder) => folder.name === "Picked Files" && folder.parentId === null)?.id;
+  if (!rootFolderId) {
+    rootFolderId = crypto.randomUUID();
+    state.folders.push({
+      id: rootFolderId,
+      name: "Picked Files",
+      parentId: null,
+    });
   }
-  const blob = new Blob([activeFile.content], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = activeFile.name;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+
+  state.expandedFolders.push(rootFolderId);
+  for (const handle of handles) {
+    const file = await handle.getFile();
+    const id = crypto.randomUUID();
+    state.files.unshift({
+      id,
+      folderId: rootFolderId,
+      name: normalizeFileName(handle.name),
+      content: await file.text(),
+      updatedAt: Date.now(),
+      source: "local",
+    });
+    runtime.fileHandles.set(id, handle);
+    state.activeId = id;
+    state.activeFolderId = rootFolderId;
+  }
+
+  ensureFolderPathExpanded(rootFolderId);
+  persistWorkspace();
+  render();
+}
+
+async function ingestPickedDirectory(directoryHandle) {
+  const rootFolderId = crypto.randomUUID();
+  state.folders.push({
+    id: rootFolderId,
+    name: directoryHandle.name,
+    parentId: null,
+  });
+  runtime.folderHandles.set(rootFolderId, directoryHandle);
+  state.expandedFolders.push(rootFolderId);
+  state.activeFolderId = rootFolderId;
+
+  await walkDirectoryHandle(directoryHandle, rootFolderId);
+
+  const newestLocalFile = [...state.files].reverse().find((file) => file.folderId === rootFolderId || isFolderDescendant(file.folderId, rootFolderId));
+  if (newestLocalFile) {
+    state.activeId = newestLocalFile.id;
+  }
+  ensureFolderPathExpanded(rootFolderId);
+  persistWorkspace();
+  render();
+}
+
+async function walkDirectoryHandle(directoryHandle, parentFolderId) {
+  for await (const entry of directoryHandle.values()) {
+    if (entry.kind === "directory") {
+      const folderId = crypto.randomUUID();
+      state.folders.push({
+        id: folderId,
+        name: entry.name,
+        parentId: parentFolderId,
+      });
+      runtime.folderHandles.set(folderId, entry);
+      state.expandedFolders.push(folderId);
+      await walkDirectoryHandle(entry, folderId);
+      continue;
+    }
+
+    if (!/\.(md|markdown|txt)$/i.test(entry.name)) {
+      continue;
+    }
+
+    const file = await entry.getFile();
+    const fileId = crypto.randomUUID();
+    state.files.push({
+      id: fileId,
+      folderId: parentFolderId,
+      name: normalizeFileName(entry.name),
+      content: await file.text(),
+      updatedAt: Date.now(),
+      source: "local",
+    });
+    runtime.fileHandles.set(fileId, entry);
+  }
+}
+
+async function writeFileHandle(handle, content) {
+  const writable = await handle.createWritable();
+  await writable.write(content);
+  await writable.close();
+}
+
+async function renameLocalFile(file, nextName) {
+  const fileHandle = runtime.fileHandles.get(file.id);
+  const folderHandle = runtime.folderHandles.get(file.folderId);
+  if (!fileHandle || !folderHandle) {
+    throw new Error("Missing local file or folder handle");
+  }
+
+  const sourceFile = await fileHandle.getFile();
+  const nextHandle = await folderHandle.getFileHandle(nextName, { create: true });
+  await writeFileHandle(nextHandle, await sourceFile.text());
+  if (nextName !== file.name) {
+    await folderHandle.removeEntry(file.name);
+  }
+  runtime.fileHandles.set(file.id, nextHandle);
 }
 
 function startResize(event) {
+  closeContextMenu();
   if (window.innerWidth <= 800) {
     return;
   }
@@ -634,6 +1040,7 @@ function stopResize(event) {
 }
 
 function startSidebarResize(event) {
+  closeContextMenu();
   if (window.innerWidth <= 1080) {
     return;
   }
@@ -672,6 +1079,249 @@ function applySidebarWidth() {
     return;
   }
   elements.appShell.style.setProperty("--sidebar-width", `${state.sidebarWidth}px`);
+}
+
+function openContextMenu(event, fileId) {
+  event.preventDefault();
+  closeFloatingMenus();
+  const file = state.files.find((entry) => entry.id === fileId);
+  const canMutateOnDisk = file?.source !== "local" || runtime.folderHandles.has(file.folderId);
+  contextTarget = { type: "file", id: fileId };
+  state.activeId = fileId;
+  state.activeFolderId = file.folderId;
+  elements.contextRename.hidden = false;
+  elements.contextMove.disabled = !canMutateOnDisk;
+  elements.contextMove.hidden = false;
+  elements.contextDelete.disabled = !canMutateOnDisk;
+  elements.contextDelete.hidden = false;
+  elements.contextCreateFile.hidden = true;
+  elements.contextCreateFolder.hidden = true;
+  elements.contextMenu.hidden = false;
+  positionContextMenu(event.clientX, event.clientY);
+  persistWorkspace();
+  render();
+}
+
+function openFileContextMenu(event, fileId) {
+  openContextMenu(event, fileId);
+}
+
+function openFolderContextMenu(event, folderId) {
+  event.preventDefault();
+  closeFloatingMenus();
+  contextTarget = { type: "folder", id: folderId };
+  elements.contextRename.hidden = true;
+  elements.contextMove.hidden = true;
+  elements.contextDelete.hidden = true;
+  elements.contextCreateFile.hidden = false;
+  elements.contextCreateFolder.hidden = false;
+  elements.contextMenu.hidden = false;
+  positionContextMenu(event.clientX, event.clientY);
+  render();
+}
+
+function positionContextMenu(x, y) {
+  const menuWidth = 180;
+  const menuHeight = contextTarget?.type === "folder" ? 96 : 144;
+  const left = Math.min(x, window.innerWidth - menuWidth - 12);
+  const top = Math.min(y, window.innerHeight - menuHeight - 12);
+  elements.contextMenu.style.left = `${Math.max(12, left)}px`;
+  elements.contextMenu.style.top = `${Math.max(12, top)}px`;
+}
+
+function closeContextMenu() {
+  if (contextTarget === null && elements.contextMenu.hidden) {
+    return false;
+  }
+  contextTarget = null;
+  elements.contextMenu.hidden = true;
+  return true;
+}
+
+function openMoveDialogFromContext() {
+  if (!contextTarget || contextTarget.type !== "file") {
+    return;
+  }
+  const file = state.files.find((entry) => entry.id === contextTarget.id);
+  if (!file) {
+    closeContextMenu();
+    return;
+  }
+
+  movingFileId = file.id;
+  elements.moveDialogFile.textContent = `当前文件：${file.name}`;
+  const folderOptions = state.folders
+    .slice()
+    .sort(sortByName)
+    .map((folder) => {
+      const disabled = file.source === "local" && !runtime.folderHandles.has(folder.id);
+      return `<option value="${folder.id}"${folder.id === file.folderId ? " selected" : ""}${disabled ? " disabled" : ""}>${escapeHtml(getFolderPathLabel(folder.id))}${disabled ? " (不可写)" : ""}</option>`;
+    })
+    .join("");
+  elements.moveTargetSelect.innerHTML = folderOptions;
+  elements.moveDialog.hidden = false;
+  closeContextMenu();
+}
+
+function closeMoveDialog() {
+  elements.moveDialog.hidden = true;
+  movingFileId = null;
+}
+
+async function confirmMoveFile() {
+  if (!movingFileId) {
+    return;
+  }
+  const file = state.files.find((entry) => entry.id === movingFileId);
+  if (!file) {
+    closeMoveDialog();
+    return;
+  }
+  const nextFolderId = elements.moveTargetSelect.value;
+  if (file.source === "local") {
+    try {
+      await moveLocalFile(file, nextFolderId);
+    } catch (error) {
+      elements.saveIndicator.textContent = "移动失败";
+      console.error("Failed to move local file", error);
+      return;
+    }
+  }
+  file.folderId = nextFolderId;
+  file.updatedAt = Date.now();
+  state.activeId = file.id;
+  state.activeFolderId = nextFolderId;
+  ensureFolderPathExpanded(nextFolderId);
+  persistWorkspace();
+  closeMoveDialog();
+  render();
+}
+
+function deleteFileFromContext() {
+  if (!contextTarget || contextTarget.type !== "file") {
+    return;
+  }
+  const fileId = contextTarget.id;
+  closeContextMenu();
+  deleteFileById(fileId);
+}
+
+function triggerRenameFromContext() {
+  if (!contextTarget || contextTarget.type !== "file") {
+    return;
+  }
+  const file = state.files.find((entry) => entry.id === contextTarget.id);
+  closeContextMenu();
+  if (!file) {
+    return;
+  }
+  state.activeId = file.id;
+  state.activeFolderId = file.folderId;
+  render();
+  elements.titleInput.focus();
+  elements.titleInput.select();
+}
+
+function createFileFromContextFolder() {
+  if (!contextTarget || contextTarget.type !== "folder") {
+    return;
+  }
+  const folderId = contextTarget.id;
+  closeContextMenu();
+  state.activeFolderId = folderId;
+  createFile(folderId);
+}
+
+function createFolderFromContextFolder() {
+  if (!contextTarget || contextTarget.type !== "folder") {
+    return;
+  }
+  const folderId = contextTarget.id;
+  closeContextMenu();
+  state.activeFolderId = folderId;
+  createFolder(folderId);
+}
+
+async function deleteFileById(fileId) {
+  const targetFile = state.files.find((file) => file.id === fileId);
+  if (!targetFile) {
+    return;
+  }
+  if (targetFile.source === "local") {
+    try {
+      await deleteLocalFile(targetFile);
+    } catch (error) {
+      elements.saveIndicator.textContent = "删除失败";
+      console.error("Failed to delete local file", error);
+      return;
+    }
+  }
+  if (state.files.length === 1) {
+    state.activeId = targetFile.id;
+    deleteActiveFile();
+    return;
+  }
+  state.files = state.files.filter((file) => file.id !== fileId);
+  if (state.activeId === fileId) {
+    state.activeId = state.files[0]?.id || null;
+  }
+  state.activeFolderId = getActiveFile()?.folderId || getDefaultFolderId();
+  ensureFolderPathExpanded(getActiveFile()?.folderId);
+  persistWorkspace();
+  render();
+}
+
+async function moveLocalFile(file, nextFolderId) {
+  const sourceHandle = runtime.fileHandles.get(file.id);
+  const targetFolderHandle = runtime.folderHandles.get(nextFolderId);
+  const sourceFolderHandle = runtime.folderHandles.get(file.folderId);
+  if (!sourceHandle || !targetFolderHandle || !sourceFolderHandle) {
+    throw new Error("Missing local file handles");
+  }
+
+  const sourceFile = await sourceHandle.getFile();
+  const nextHandle = await targetFolderHandle.getFileHandle(file.name, { create: true });
+  await writeFileHandle(nextHandle, await sourceFile.text());
+  await sourceFolderHandle.removeEntry(file.name);
+  runtime.fileHandles.set(file.id, nextHandle);
+}
+
+async function deleteLocalFile(file) {
+  const folderHandle = runtime.folderHandles.get(file.folderId);
+  if (!folderHandle) {
+    throw new Error("Missing local folder handle");
+  }
+  await folderHandle.removeEntry(file.name);
+  runtime.fileHandles.delete(file.id);
+}
+
+function handleDocumentClick(event) {
+  if (!event.target.closest(".menu-anchor")) {
+    closeFloatingMenus();
+  }
+  if (!event.target.closest(".context-menu")) {
+    if (closeContextMenu()) {
+      render();
+    }
+  }
+}
+
+function handleDocumentKeydown(event) {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+    event.preventDefault();
+    saveActiveFile();
+    return;
+  }
+
+  if (event.key !== "Escape") {
+    return;
+  }
+  closeFloatingMenus();
+  const closedContextMenu = closeContextMenu();
+  closeMoveDialog();
+  if (closedContextMenu) {
+    render();
+  }
 }
 
 function applyPanelRatio() {
@@ -718,8 +1368,40 @@ function getFolderById(folderId) {
   return state.folders.find((folder) => folder.id === folderId) || null;
 }
 
+function getFolderPathLabel(folderId) {
+  const segments = [];
+  let current = getFolderById(folderId);
+  while (current) {
+    segments.unshift(current.name);
+    current = getFolderById(current.parentId);
+  }
+  return segments.join(" / ");
+}
+
+function isFolderDescendant(folderId, ancestorId) {
+  let currentId = folderId;
+  while (currentId) {
+    if (currentId === ancestorId) {
+      return true;
+    }
+    currentId = getFolderById(currentId)?.parentId || null;
+  }
+  return false;
+}
+
 function getDefaultFolderId() {
   return state.folders[0]?.id;
+}
+
+function resolveWritableFolderId(folderId) {
+  let currentId = folderId;
+  while (currentId) {
+    if (runtime.folderHandles.has(currentId)) {
+      return currentId;
+    }
+    currentId = getFolderById(currentId)?.parentId || null;
+  }
+  return folderId;
 }
 
 function ensureFolderPathExpanded(folderId) {

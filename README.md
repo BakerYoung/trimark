@@ -27,6 +27,32 @@ npm run dev
 - 官网会展示仓库地址和 GitHub star 数
 - 当前仓库地址：`https://github.com/BakerYoung/trimark`
 
+## GitHub Pages 部署
+
+按下面步骤发布官网：
+
+1. 打开仓库：`https://github.com/BakerYoung/trimark`
+2. 进入 `Settings`
+3. 在左侧进入 `Pages`
+4. 在 `Build and deployment` 中选择：
+   - `Source`: `Deploy from a branch`
+   - `Branch`: `main`
+   - `Folder`: `/ (root)`
+5. 点击 `Save`
+
+GitHub Pages 启用后，默认地址通常是：
+
+```text
+https://bakeryoung.github.io/trimark/
+```
+
+页面路径说明：
+
+- 官网首页：`https://bakeryoung.github.io/trimark/`
+- 在线体验：`https://bakeryoung.github.io/trimark/editor.html`
+
+如果首次开启后没有立即生效，通常等待 1-5 分钟即可。
+
 ## 打包
 
 打包当前系统安装包：

@@ -24,6 +24,9 @@
     },
     "files": [
       "index.html",
+      "editor.html",
+      "site.css",
+      "site.js",
       "styles.css",
       "app.js",
       "electron/**/*",

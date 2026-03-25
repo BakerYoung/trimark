@@ -18,7 +18,7 @@ function createWindow() {
     },
   });
 
-  win.loadFile(path.join(__dirname, "..", "index.html"));
+  win.loadFile(path.join(__dirname, "..", "editor.html"));
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);

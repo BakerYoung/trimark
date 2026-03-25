@@ -3,117 +3,178 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TriMark</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <title>TriMark | Markdown Workspace</title>
+    <meta
+      name="description"
+      content="TriMark 是一个三栏式 Markdown 工作台，支持文件树、本地文件夹直写、实时预览和桌面打包。"
+    />
+    <link rel="stylesheet" href="./site.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">Workspace</p>
+    <div class="site-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">T</div>
+          <div class="brand-copy">
+            <p>Markdown Workspace</p>
             <h1>TriMark</h1>
           </div>
-          <div class="head-actions"></div>
+        </div>
+        <div class="top-links">
+          <a class="ghost-link" href="#features">产品能力</a>
+          <a class="ghost-link" data-repo-link href="https://github.com/BakerYoung/trimark">GitHub</a>
+          <a class="primary-link" data-experience-link href="./editor.html">在线体验</a>
+        </div>
+      </header>
+
+      <section class="hero">
+        <div class="hero-copy">
+          <div class="hero-badges">
+            <span class="hero-badge">Open Source</span>
+            <span class="hero-badge hero-badge-muted">GitHub Pages Ready</span>
+          </div>
+          <p class="eyebrow">Sublime-Style Markdown Workspace</p>
+          <h2>把文件树、编辑器和预览，放进同一个专注的 Markdown 工作台。</h2>
+          <p class="lead">
+            TriMark 面向个人知识管理和本地 Markdown 写作。你可以在左侧管理目录和文件，在中间专注编辑，在右侧实时预览，并直接连接本地文件夹完成真正的创建、保存和整理。
+          </p>
+          <div class="hero-actions">
+            <a class="primary-link" data-experience-link href="./editor.html">立即在线体验</a>
+            <a class="ghost-link" data-repo-link href="https://github.com/BakerYoung/trimark">查看 GitHub 仓库</a>
+          </div>
+          <div class="hero-meta">
+            <div class="meta-box">
+              <strong>三栏工作区</strong>
+              <span>文件树 / 编辑 / 预览</span>
+            </div>
+            <div class="meta-box">
+              <strong>本地直写</strong>
+              <span>打开文件夹后可直接写回磁盘</span>
+            </div>
+            <div class="meta-box">
+              <strong>跨端交付</strong>
+              <span>Web、macOS、Windows</span>
+            </div>
+          </div>
         </div>
 
-        <div class="sidebar-tools">
-          <div class="menu-anchor">
-            <button id="create-menu-btn" class="secondary-btn full-width" type="button">创建</button>
-            <div id="create-menu" class="floating-menu floating-menu-wide" hidden>
-              <button id="create-file-action" class="floating-menu-item" type="button">创建 MD</button>
-              <button id="create-folder-action" class="floating-menu-item" type="button">创建文件夹</button>
+        <div class="hero-card">
+          <div class="hero-card-top">
+            <div class="window-bar">
+              <span></span><span></span><span></span>
+            </div>
+            <div class="live-pill">Live Browser Experience</div>
+          </div>
+          <div class="mockup">
+            <div class="mock-col sidebar">
+              <p class="mock-title">Workspace</p>
+              <div class="mock-toolbar">
+                <span></span><span></span>
+              </div>
+              <div class="mock-item active"></div>
+              <div class="mock-item"></div>
+              <div class="mock-item"></div>
+              <div class="mock-item"></div>
+              <div class="mock-item short"></div>
+            </div>
+            <div class="mock-col editor">
+              <p class="mock-title">Editor</p>
+              <div class="mock-editor-head"></div>
+              <div class="mock-line long"></div>
+              <div class="mock-line long"></div>
+              <div class="mock-line mid"></div>
+              <div class="mock-line short"></div>
+              <div class="mock-code"></div>
+              <div class="mock-line long"></div>
+              <div class="mock-line mid"></div>
+            </div>
+            <div class="mock-col preview">
+              <p class="mock-title">Preview</p>
+              <div class="mock-preview-card">
+                <div class="mock-line long"></div>
+                <div class="mock-line mid"></div>
+                <div class="mock-line short"></div>
+                <div class="mock-divider"></div>
+                <div class="mock-line long"></div>
+                <div class="mock-line mid"></div>
+                <div class="mock-line short"></div>
+              </div>
             </div>
           </div>
-          <div class="menu-anchor">
-            <button id="open-menu-btn" class="secondary-btn full-width" type="button">打开</button>
-            <div id="open-menu" class="floating-menu floating-menu-wide" hidden>
-              <button id="pick-file-btn" class="floating-menu-item" type="button">打开 MD</button>
-              <button id="pick-folder-btn" class="floating-menu-item" type="button">打开文件夹</button>
-            </div>
-          </div>
-          <input id="file-input" type="file" accept=".md,.markdown,.txt" multiple hidden />
-          <input id="folder-input" type="file" webkitdirectory directory multiple hidden />
         </div>
+      </section>
 
-        <p id="workspace-hint" class="workspace-hint">
-          Chromium 浏览器可直接写回本地文件；不支持时会退回为临时工作区。
-        </p>
+      <section class="trust-strip">
+        <div class="trust-item">
+          <span class="trust-label">Repository</span>
+          <strong>BakerYoung/trimark</strong>
+        </div>
+        <div class="trust-item">
+          <span class="trust-label">GitHub Star</span>
+          <strong id="repo-stars-inline">--</strong>
+        </div>
+        <div class="trust-item">
+          <span class="trust-label">Online Demo</span>
+          <strong>Browser Editor</strong>
+        </div>
+        <div class="trust-item">
+          <span class="trust-label">Desktop Build</span>
+          <strong>macOS / Windows</strong>
+        </div>
+      </section>
 
-        <div id="file-list" class="file-list" aria-label="Markdown 文件树"></div>
-      </aside>
-
-      <div id="sidebar-resizer" class="sidebar-resizer" aria-hidden="true"></div>
-
-      <main id="main-panel" class="main-panel">
-        <section class="editor-panel">
-          <div class="panel-head">
-            <div>
-              <p class="eyebrow">Editor</p>
-              <input id="title-input" class="title-input" type="text" aria-label="文件名" />
+      <section id="features" class="sections">
+        <article class="section-card">
+          <p class="eyebrow">Feature Set</p>
+          <h3>围绕“本地 Markdown 工作流”设计的核心体验</h3>
+          <div class="feature-list">
+            <div class="feature-row">
+              <strong>在线体验入口</strong>
+              <span>官网内直接进入网页版编辑器，完整体验三栏工作台和文件树交互。</span>
             </div>
-            <div class="meta-group">
-              <span id="save-indicator" class="status-pill">已保存</span>
-              <button id="delete-btn" class="danger-btn" type="button">删除</button>
+            <div class="feature-row">
+              <strong>本地目录接入</strong>
+              <span>打开本地文件夹后，创建、保存、移动和重命名都能直接落到磁盘。</span>
+            </div>
+            <div class="feature-row">
+              <strong>右键文件管理</strong>
+              <span>文件支持重命名、移动、删除；文件夹支持右键快速创建 Markdown 和子文件夹。</span>
+            </div>
+            <div class="feature-row">
+              <strong>桌面打包</strong>
+              <span>同一套产品同时支持 GitHub Pages 官网、网页版体验和 Electron 桌面应用。</span>
             </div>
           </div>
+        </article>
 
-          <div class="editor-toolbar">
-            <button data-insert="# " type="button">H1</button>
-            <button data-insert="## " type="button">H2</button>
-            <button data-insert="**粗体**" type="button">粗体</button>
-            <button data-insert="- 列表项" type="button">列表</button>
-            <button data-insert="```\\n代码块\\n```" type="button">代码</button>
-            <button data-insert="[链接](https://)" type="button">链接</button>
-          </div>
-
-          <textarea
-            id="editor"
-            class="editor"
-            spellcheck="false"
-            aria-label="Markdown 编辑器"
-            placeholder="开始写作..."
-          ></textarea>
-        </section>
-
-        <div id="panel-resizer" class="panel-resizer" aria-hidden="true"></div>
-
-        <section class="preview-panel">
-          <div class="panel-head">
-            <div>
-              <p class="eyebrow">Preview</p>
-              <h2>实时预览</h2>
+        <aside class="section-card">
+          <p class="eyebrow">Repository</p>
+          <h3>GitHub 仓库信息</h3>
+          <div class="repo-grid">
+            <div class="repo-stat">
+              <span class="stat-label">Star</span>
+              <strong id="repo-stars" class="stat-value">--</strong>
             </div>
-            <span id="word-count" class="status-pill">0 字</span>
+            <div class="repo-stat">
+              <span class="stat-label">Visibility</span>
+              <strong id="repo-visibility" class="stat-value">--</strong>
+            </div>
+            <div class="repo-stat">
+              <span class="stat-label">Last Push</span>
+              <strong id="repo-updated" class="stat-value">--</strong>
+            </div>
           </div>
-          <article id="preview" class="preview markdown-body"></article>
-        </section>
-      </main>
+          <a id="repo-url" class="repo-url" href="https://github.com/BakerYoung/trimark">https://github.com/BakerYoung/trimark</a>
+          <p class="repo-note">
+            GitHub star 数通过公开仓库接口实时加载。当前线上数据会随仓库变化自动更新。
+          </p>
+          <div class="repo-actions">
+            <a class="ghost-link" data-repo-link href="https://github.com/BakerYoung/trimark">前往仓库</a>
+            <a class="primary-link" data-experience-link href="./editor.html">打开在线体验</a>
+          </div>
+        </aside>
+      </section>
     </div>
-
-    <div id="context-menu" class="floating-menu context-menu" hidden>
-      <button id="context-rename" class="floating-menu-item" type="button">重命名</button>
-      <button id="context-move" class="floating-menu-item" type="button">移动到...</button>
-      <button id="context-delete" class="floating-menu-item danger-text" type="button">删除文件</button>
-      <button id="context-create-file" class="floating-menu-item" type="button">创建 MD</button>
-      <button id="context-create-folder" class="floating-menu-item" type="button">创建文件夹</button>
-    </div>
-
-    <div id="move-dialog" class="modal-backdrop" hidden>
-      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="move-dialog-title">
-        <div class="modal-head">
-          <h3 id="move-dialog-title">移动文件</h3>
-          <button id="move-dialog-close" class="icon-btn" type="button" title="关闭">×</button>
-        </div>
-        <p id="move-dialog-file" class="modal-copy"></p>
-        <label class="modal-label" for="move-target-select">目标文件夹</label>
-        <select id="move-target-select" class="modal-select"></select>
-        <div class="modal-actions">
-          <button id="move-cancel" class="secondary-btn" type="button">取消</button>
-          <button id="move-confirm" class="secondary-btn" type="button">确认移动</button>
-        </div>
-      </div>
-    </div>
-    <script src="./app.js"></script>
+    <script src="./site.js"></script>
   </body>
 </html>

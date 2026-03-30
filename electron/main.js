@@ -1,9 +1,9 @@
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const path = require("node:path");
 
 const isMac = process.platform === "darwin";
 
-function createWindow() {
+function createWindow(workspaceId = null) {
   const win = new BrowserWindow({
     width: 1560,
     height: 980,
@@ -15,10 +15,12 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, "preload.js"),
     },
   });
 
-  win.loadFile(path.join(__dirname, "..", "editor.html"));
+  const query = workspaceId ? { workspace: workspaceId } : undefined;
+  win.loadFile(path.join(__dirname, "..", "editor.html"), { query });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -28,6 +30,16 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+
+  ipcMain.handle("workspace:open-window", (_event, workspaceId) => {
+    createWindow(workspaceId || null);
+    return true;
+  });
+
+  ipcMain.handle("workspace:close-window", (event) => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+    return true;
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

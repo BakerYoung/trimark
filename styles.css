@@ -64,7 +64,9 @@ textarea {
   border-right: 1px solid var(--line);
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
+  z-index: 30;
 }
 
 .sidebar-resizer,
@@ -84,6 +86,8 @@ textarea {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .editor-panel,
@@ -170,6 +174,129 @@ textarea {
 .head-actions {
   display: flex;
   gap: 8px;
+  position: relative;
+  z-index: 80;
+}
+
+.workspace-anchor {
+  position: relative;
+  width: auto;
+  z-index: 81;
+}
+
+#workspace-menu-btn {
+  position: relative;
+  z-index: 82;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88px;
+  cursor: pointer;
+}
+
+.workspace-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 90;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  gap: 8px;
+  overflow: auto;
+}
+
+.workspace-menu-head,
+.workspace-list-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workspace-kicker {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.workspace-list {
+  display: flex;
+  max-height: 280px;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+
+.workspace-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(52, 59, 69, 0.46);
+  cursor: pointer;
+  transition: 120ms ease;
+}
+
+.workspace-entry.is-current {
+  border-color: rgba(255, 152, 0, 0.32);
+  background: rgba(255, 152, 0, 0.08);
+}
+
+.workspace-entry:hover {
+  border-color: #546171;
+  background: #3a4450;
+}
+
+.workspace-entry.is-current:hover {
+  border-color: rgba(255, 152, 0, 0.4);
+  background: rgba(255, 152, 0, 0.12);
+}
+
+.workspace-entry-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workspace-entry-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-entry-copy span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.workspace-entry-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.workspace-chip {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.workspace-chip:hover {
+  border-color: #546171;
+  background: #3a4450;
+}
+
+.workspace-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .menu-anchor {
@@ -256,10 +383,26 @@ textarea {
   flex-direction: column;
   gap: 8px;
   min-height: 0;
+  flex: 1;
   overflow-x: auto;
   overflow-y: auto;
   padding-right: 4px;
   padding-bottom: 8px;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+}
+
+.empty-state strong {
+  color: var(--text);
 }
 
 .tree-node {
@@ -590,6 +733,10 @@ textarea {
 
   .sidebar-resizer {
     display: none;
+  }
+
+  .workspace-menu {
+    width: min(360px, calc(100vw - 24px));
   }
 }
 

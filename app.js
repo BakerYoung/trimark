@@ -1,9 +1,12 @@
+const APP_STORAGE_KEY = "trimark.app.v1";
 const STORAGE_KEY = "trimark.workspace.v3";
 const LEGACY_STORAGE_KEY = "trimark.workspace.v1";
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 520;
 const MIN_EDITOR_WIDTH = 320;
 const MIN_PREVIEW_WIDTH = 320;
+
+const desktopApi = window.trimarkDesktop || null;
 
 const elements = {
   fileTree: document.querySelector("#file-list"),
@@ -24,6 +27,14 @@ const elements = {
   saveIndicator: document.querySelector("#save-indicator"),
   wordCount: document.querySelector("#word-count"),
   workspaceHint: document.querySelector("#workspace-hint"),
+  workspaceMenuBtn: document.querySelector("#workspace-menu-btn"),
+  workspaceMenu: document.querySelector("#workspace-menu"),
+  workspaceCurrentName: document.querySelector("#workspace-current-name"),
+  workspaceOpenFolderAction: document.querySelector("#workspace-open-folder-action"),
+  workspaceCreateAction: document.querySelector("#workspace-create-action"),
+  workspaceOpenWindowAction: document.querySelector("#workspace-open-window-action"),
+  workspaceCloseAction: document.querySelector("#workspace-close-action"),
+  workspaceList: document.querySelector("#workspace-list"),
   toolbarButtons: document.querySelectorAll(".editor-toolbar button"),
   appShell: document.querySelector(".app-shell"),
   sidebar: document.querySelector(".sidebar"),
@@ -48,11 +59,14 @@ const elements = {
 
 const runtime = {
   supportsFileSystemAccess: typeof window.showOpenFilePicker === "function" && typeof window.showDirectoryPicker === "function",
+  isDesktopApp: Boolean(desktopApi?.isDesktopApp),
+  folderImportMode: "current",
   fileHandles: new Map(),
   folderHandles: new Map(),
 };
 
-const state = loadWorkspace();
+const workspaceManager = loadWorkspaceManager();
+const state = normalizeWorkspace(getCurrentWorkspaceRecord().data);
 let saveTimer = null;
 let diskSaveTimer = null;
 let panelResizerState = null;
@@ -64,135 +78,98 @@ let movingFileId = null;
 render();
 bindEvents();
 
-function loadWorkspace() {
-  const restored = readWorkspace(STORAGE_KEY);
+function loadWorkspaceManager() {
+  const restored = readWorkspace(APP_STORAGE_KEY);
   if (restored) {
-    return normalizeWorkspace(restored);
+    return normalizeWorkspaceManager(restored);
   }
 
-  const legacy = readWorkspace(LEGACY_STORAGE_KEY);
+  const legacy = readWorkspace(STORAGE_KEY);
   if (legacy) {
-    return migrateLegacyWorkspace(legacy);
+    const id = crypto.randomUUID();
+    return {
+      currentWorkspaceId: id,
+      workspaces: [createWorkspaceRecord("Workspace 1", normalizeWorkspace(legacy), id)],
+    };
   }
 
-  return createStarterWorkspace();
-}
-
-function readWorkspace(key) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
-  } catch (error) {
-    console.warn("Failed to restore workspace", error);
-    return null;
+  const oldLegacy = readWorkspace(LEGACY_STORAGE_KEY);
+  if (oldLegacy) {
+    const id = crypto.randomUUID();
+    return {
+      currentWorkspaceId: id,
+      workspaces: [createWorkspaceRecord("Workspace 1", migrateLegacyWorkspace(oldLegacy), id)],
+    };
   }
-}
 
-function createStarterWorkspace() {
-  const rootId = crypto.randomUUID();
-  const starterId = crypto.randomUUID();
-
+  const id = crypto.randomUUID();
   return {
-    activeId: starterId,
-    sidebarWidth: 280,
-    panelRatio: 0.5,
-    expandedFolders: [rootId],
-    folders: [
-      {
-        id: rootId,
-        name: "notes",
-        parentId: null,
-      },
-    ],
-    files: [
-      {
-        id: starterId,
-        folderId: rootId,
-        name: "welcome.md",
-        content: [
-          "# TriMark",
-          "",
-          "这是一个三栏式 Markdown 工作区：",
-          "",
-          "- 左侧支持文件夹和文件",
-          "- 中间专注写作",
-          "- 右侧实时预览",
-          "",
-          "```js",
-          "const note = '像 Sublime Text 一样干净直接';",
-          "```",
-          "",
-          "> 你现在也可以导入整个文件夹。",
-        ].join("\n"),
-        updatedAt: Date.now(),
-        source: "workspace",
-      },
-    ],
+    currentWorkspaceId: id,
+    workspaces: [createWorkspaceRecord("Workspace 1", createStarterWorkspace(), id)],
   };
 }
 
-function migrateLegacyWorkspace(legacy) {
-  const rootId = crypto.randomUUID();
-  const files = Array.isArray(legacy.files)
-    ? legacy.files.map((file) => ({
-        ...file,
-        folderId: rootId,
-      }))
+function normalizeWorkspaceManager(data) {
+  const workspaces = Array.isArray(data.workspaces)
+    ? data.workspaces.map((workspace, index) => normalizeWorkspaceRecord(workspace, index))
     : [];
 
-  return normalizeWorkspace({
-    activeId: legacy.activeId || files[0]?.id || null,
-    sidebarWidth: 280,
-    panelRatio: 0.5,
-    expandedFolders: [rootId],
-    folders: [
-      {
-        id: rootId,
-        name: "Imported",
-        parentId: null,
-      },
-    ],
-    files,
-  });
-}
-
-function normalizeWorkspace(data) {
-  const folders = Array.isArray(data.folders) && data.folders.length > 0 ? data.folders : createStarterWorkspace().folders;
-  const folderIds = new Set(folders.map((folder) => folder.id));
-  const defaultFolderId = folders[0].id;
-  const files = Array.isArray(data.files) && data.files.length > 0
-    ? data.files.map((file) => ({
-        ...file,
-        folderId: folderIds.has(file.folderId) ? file.folderId : defaultFolderId,
-        updatedAt: Number(file.updatedAt) || Date.now(),
-        source: file.source === "local" ? "local" : "workspace",
-      }))
-    : createStarterWorkspace().files.map((file) => ({
-        ...file,
-        folderId: defaultFolderId,
-      }));
-
-  const activeId = files.some((file) => file.id === data.activeId) ? data.activeId : files[0].id;
-  const expandedFolders = Array.isArray(data.expandedFolders)
-    ? [...new Set(data.expandedFolders.filter((id) => folderIds.has(id)))]
-    : [defaultFolderId];
-
-  if (!expandedFolders.length) {
-    expandedFolders.push(defaultFolderId);
+  if (!workspaces.length) {
+    const id = crypto.randomUUID();
+    workspaces.push(createWorkspaceRecord("Workspace 1", createStarterWorkspace(), id));
   }
 
+  const requestedWorkspaceId = getRequestedWorkspaceId();
+  const preferredWorkspaceId = requestedWorkspaceId || data.currentWorkspaceId;
+  const currentWorkspaceId = workspaces.some((workspace) => workspace.id === preferredWorkspaceId)
+    ? preferredWorkspaceId
+    : workspaces[0].id;
+
   return {
-    activeId,
-    activeFolderId: folderIds.has(data.activeFolderId) ? data.activeFolderId : defaultFolderId,
-    sidebarWidth: clamp(Number(data.sidebarWidth) || 280, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH),
-    panelRatio: clamp(Number(data.panelRatio) || 0.5, 0.32, 0.68),
-    expandedFolders,
-    folders,
-    files,
+    currentWorkspaceId,
+    workspaces,
   };
+}
+
+function normalizeWorkspaceRecord(workspace, index) {
+  const id = workspace?.id || crypto.randomUUID();
+  const fallbackName = `Workspace ${index + 1}`;
+
+  return {
+    id,
+    name: normalizeWorkspaceName(workspace?.name) || fallbackName,
+    lastOpenedAt: Number(workspace?.lastOpenedAt) || Date.now(),
+    data: normalizeWorkspace(workspace?.data || workspace),
+  };
+}
+
+function createWorkspaceRecord(name, workspaceData, id = crypto.randomUUID()) {
+  return {
+    id,
+    name: normalizeWorkspaceName(name) || nextWorkspaceName(),
+    lastOpenedAt: Date.now(),
+    data: normalizeWorkspace(workspaceData || createStarterWorkspace()),
+  };
+}
+
+function getRequestedWorkspaceId() {
+  return new URLSearchParams(window.location.search).get("workspace");
 }
 
 function bindEvents() {
+  elements.workspaceMenuBtn.addEventListener("pointerdown", handleWorkspaceMenuButtonPointerDown);
+  elements.workspaceMenuBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  elements.workspaceOpenFolderAction.addEventListener("click", openExistingWorkspaceFolder);
+  elements.workspaceCreateAction.addEventListener("click", createWorkspaceFromMenu);
+  elements.workspaceOpenWindowAction.addEventListener("click", () => {
+    closeFloatingMenus();
+    openWorkspaceWindow(workspaceManager.currentWorkspaceId);
+  });
+  elements.workspaceCloseAction.addEventListener("click", closeCurrentWorkspaceView);
+  elements.workspaceList.addEventListener("click", handleWorkspaceListClick);
   elements.createMenuBtn.addEventListener("click", (event) => toggleMenu(event, elements.createMenu));
   elements.openMenuBtn.addEventListener("click", (event) => toggleMenu(event, elements.openMenu));
   elements.createFileAction.addEventListener("click", () => {
@@ -279,16 +256,48 @@ function bindEvents() {
 }
 
 function render() {
+  renderWorkspaceMenu();
   renderWorkspaceHint();
   renderFileTree();
   renderActiveFile();
   applySidebarWidth();
   applyPanelRatio();
+  updateWindowTitle();
+  persistWorkspace();
+}
+
+function renderWorkspaceMenu() {
+  const currentWorkspace = getCurrentWorkspaceRecord();
+  const currentFile = getActiveFile();
+  const currentWorkspaceLabel = getWorkspaceLabel(currentWorkspace);
+  elements.workspaceCurrentName.textContent = currentWorkspaceLabel;
+  elements.workspaceMenuBtn.textContent = currentWorkspaceLabel;
+  elements.workspaceList.innerHTML = workspaceManager.workspaces
+    .slice()
+    .sort((a, b) => b.lastOpenedAt - a.lastOpenedAt)
+    .map((workspace) => {
+      const fileCount = workspace.data.files.length;
+      const isCurrent = workspace.id === workspaceManager.currentWorkspaceId;
+      const workspaceLabel = getWorkspaceLabel(workspace);
+      return [
+        `<div class="workspace-entry${isCurrent ? " is-current" : ""}" data-workspace-entry="${workspace.id}">`,
+        '<div class="workspace-entry-copy">',
+        `<strong>${escapeHtml(workspaceLabel)}</strong>`,
+        `<span>${fileCount} 个文件${isCurrent && currentFile ? ` · 当前文件 ${escapeHtml(currentFile.name)}` : ""}</span>`,
+        "</div>",
+        '<div class="workspace-entry-actions">',
+        `<button class="workspace-chip" type="button" data-workspace-action="switch" data-workspace-id="${workspace.id}"${isCurrent ? " disabled" : ""}>${isCurrent ? "当前" : "打开"}</button>`,
+        `<button class="workspace-chip" type="button" data-workspace-action="window" data-workspace-id="${workspace.id}">新窗</button>`,
+        "</div>",
+        "</div>",
+      ].join("");
+    })
+    .join("");
 }
 
 function renderWorkspaceHint() {
   if (!runtime.supportsFileSystemAccess) {
-    elements.workspaceHint.textContent = "当前浏览器不支持本地直写。请使用 Chrome / Edge，并通过“打开文件夹”接入本地目录。";
+    elements.workspaceHint.textContent = "当前浏览器不支持本地直写。请使用 Chrome / Edge，并通过“打开 -> 打开文件夹”接入本地目录。";
     return;
   }
 
@@ -310,14 +319,375 @@ function toggleMenu(event, menu) {
   activeMenu = menu;
 }
 
+function handleWorkspaceMenuButtonPointerDown(event) {
+  if (event.button !== 0) {
+    return;
+  }
+  toggleMenu(event, elements.workspaceMenu);
+}
+
 function closeFloatingMenus() {
+  elements.workspaceMenu.hidden = true;
   elements.createMenu.hidden = true;
   elements.openMenu.hidden = true;
   activeMenu = null;
 }
 
+async function createWorkspaceFromMenu() {
+  closeFloatingMenus();
+  const suggestedName = nextWorkspaceName();
+  const providedName = window.prompt("工作区名称", suggestedName);
+  if (providedName === null) {
+    return;
+  }
+
+  const workspace = createWorkspaceRecord(providedName || suggestedName, createEmptyWorkspace());
+  workspaceManager.workspaces.unshift(workspace);
+  persistWorkspace();
+  activateWorkspace(workspace.id);
+}
+
+async function openExistingWorkspaceFolder() {
+  closeFloatingMenus();
+
+  if (runtime.supportsFileSystemAccess) {
+    try {
+      const handle = await window.showDirectoryPicker();
+      const workspacePayload = await buildWorkspaceFromDirectoryHandle(handle);
+      const workspace = createWorkspaceRecord(handle.name, workspacePayload.data);
+      workspaceManager.workspaces.unshift(workspace);
+      activateWorkspace(workspace.id, workspacePayload);
+      return;
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        console.error("Failed to open workspace folder", error);
+      }
+      return;
+    }
+  }
+
+  runtime.folderImportMode = "workspace";
+  elements.folderInput.click();
+}
+
+async function openWorkspaceWindow(workspaceId) {
+  if (runtime.isDesktopApp) {
+    await desktopApi.openWorkspaceWindow(workspaceId);
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.set("workspace", workspaceId);
+  window.open(url.toString(), "_blank", "noopener");
+}
+
+function closeCurrentWorkspaceView() {
+  closeFloatingMenus();
+  if (runtime.isDesktopApp) {
+    desktopApi.closeWorkspaceWindow();
+    return;
+  }
+
+  window.close();
+}
+
+function handleWorkspaceListClick(event) {
+  const actionButton = event.target.closest("[data-workspace-action]");
+  const entry = event.target.closest("[data-workspace-entry]");
+  const workspaceId = actionButton?.dataset.workspaceId || entry?.dataset.workspaceEntry;
+  if (!workspaceId) {
+    return;
+  }
+
+  if (actionButton?.dataset.workspaceAction === "window") {
+    closeFloatingMenus();
+    openWorkspaceWindow(workspaceId);
+    return;
+  }
+
+  closeFloatingMenus();
+  switchWorkspace(workspaceId);
+}
+
+function switchWorkspace(workspaceId) {
+  if (workspaceId === workspaceManager.currentWorkspaceId) {
+    return;
+  }
+
+  const nextWorkspace = workspaceManager.workspaces.find((workspace) => workspace.id === workspaceId);
+  if (!nextWorkspace) {
+    return;
+  }
+
+  runtime.fileHandles.clear();
+  runtime.folderHandles.clear();
+  contextTarget = null;
+  movingFileId = null;
+  workspaceManager.currentWorkspaceId = workspaceId;
+  nextWorkspace.lastOpenedAt = Date.now();
+  replaceState(normalizeWorkspace(nextWorkspace.data));
+  syncWorkspaceUrl();
+  render();
+}
+
+function activateWorkspace(workspaceId, payload = null) {
+  const nextWorkspace = workspaceManager.workspaces.find((workspace) => workspace.id === workspaceId);
+  if (!nextWorkspace) {
+    return;
+  }
+
+  runtime.fileHandles.clear();
+  runtime.folderHandles.clear();
+  if (payload?.fileHandles) {
+    payload.fileHandles.forEach((handle, id) => {
+      runtime.fileHandles.set(id, handle);
+    });
+  }
+  if (payload?.folderHandles) {
+    payload.folderHandles.forEach((handle, id) => {
+      runtime.folderHandles.set(id, handle);
+    });
+  }
+
+  contextTarget = null;
+  movingFileId = null;
+  workspaceManager.currentWorkspaceId = workspaceId;
+  nextWorkspace.lastOpenedAt = Date.now();
+  nextWorkspace.data = normalizeWorkspace(payload?.data || nextWorkspace.data);
+  replaceState(normalizeWorkspace(nextWorkspace.data));
+  syncWorkspaceUrl();
+  render();
+}
+
+function replaceState(nextState) {
+  Object.keys(state).forEach((key) => {
+    delete state[key];
+  });
+  Object.assign(state, nextState);
+}
+
+function updateWindowTitle() {
+  const workspace = getCurrentWorkspaceRecord();
+  const activeFile = getActiveFile();
+  const workspaceLabel = getWorkspaceLabel(workspace);
+  document.title = activeFile
+    ? `${workspaceLabel} · ${activeFile.name} | TriMark`
+    : `${workspaceLabel} | TriMark`;
+}
+
+function syncWorkspaceUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.set("workspace", workspaceManager.currentWorkspaceId);
+  window.history.replaceState({}, "", url);
+}
+
+function getCurrentWorkspaceRecord() {
+  return workspaceManager.workspaces.find((workspace) => workspace.id === workspaceManager.currentWorkspaceId) || workspaceManager.workspaces[0];
+}
+
+function persistWorkspace() {
+  const currentWorkspace = getCurrentWorkspaceRecord();
+  currentWorkspace.lastOpenedAt = Date.now();
+  currentWorkspace.data = snapshotState();
+  localStorage.setItem(APP_STORAGE_KEY, JSON.stringify({
+    currentWorkspaceId: workspaceManager.currentWorkspaceId,
+    workspaces: workspaceManager.workspaces,
+  }));
+  syncWorkspaceUrl();
+}
+
+function snapshotState() {
+  return {
+    activeId: state.activeId,
+    activeFolderId: state.activeFolderId,
+    sidebarWidth: state.sidebarWidth,
+    panelRatio: state.panelRatio,
+    expandedFolders: [...state.expandedFolders],
+    folders: state.folders.map((folder) => ({ ...folder })),
+    files: state.files.map((file) => ({ ...file })),
+  };
+}
+
+function readWorkspace(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    console.warn("Failed to restore workspace", error);
+    return null;
+  }
+}
+
+function createStarterWorkspace() {
+  const rootId = crypto.randomUUID();
+  const starterId = crypto.randomUUID();
+
+  return {
+    activeId: starterId,
+    sidebarWidth: 280,
+    panelRatio: 0.5,
+    expandedFolders: [rootId],
+    folders: [
+      {
+        id: rootId,
+        name: "notes",
+        parentId: null,
+      },
+    ],
+    files: [
+      {
+        id: starterId,
+        folderId: rootId,
+        name: "welcome.md",
+        content: [
+          "# TriMark",
+          "",
+          "这是一个三栏式 Markdown 工作区：",
+          "",
+          "- 左侧支持文件夹和文件",
+          "- 中间专注写作",
+          "- 右侧实时预览",
+          "",
+          "```js",
+          "const note = '现在一个应用可以并行打开多个工作空间';",
+          "```",
+          "",
+          "> 通过左上角的“工作空间”菜单，新建、切换或在新窗口打开空间。",
+        ].join("\n"),
+        updatedAt: Date.now(),
+        source: "workspace",
+      },
+    ],
+  };
+}
+
+function createEmptyWorkspace() {
+  return {
+    activeId: null,
+    activeFolderId: null,
+    sidebarWidth: 280,
+    panelRatio: 0.5,
+    expandedFolders: [],
+    folders: [],
+    files: [],
+  };
+}
+
+function migrateLegacyWorkspace(legacy) {
+  const rootId = crypto.randomUUID();
+  const files = Array.isArray(legacy.files)
+    ? legacy.files.map((file) => ({
+        ...file,
+        folderId: rootId,
+      }))
+    : [];
+
+  return normalizeWorkspace({
+    activeId: legacy.activeId || files[0]?.id || null,
+    sidebarWidth: 280,
+    panelRatio: 0.5,
+    expandedFolders: [rootId],
+    folders: [
+      {
+        id: rootId,
+        name: "Imported",
+        parentId: null,
+      },
+    ],
+    files,
+  });
+}
+
+function normalizeWorkspace(data) {
+  const isExplicitlyEmpty = Array.isArray(data?.folders) && Array.isArray(data?.files) && !data.folders.length && !data.files.length;
+  if (isExplicitlyEmpty) {
+    return {
+      activeId: null,
+      activeFolderId: null,
+      sidebarWidth: clamp(Number(data?.sidebarWidth) || 280, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH),
+      panelRatio: clamp(Number(data?.panelRatio) || 0.5, 0.32, 0.68),
+      expandedFolders: [],
+      folders: [],
+      files: [],
+    };
+  }
+
+  const starterWorkspace = createStarterWorkspace();
+  const folders = Array.isArray(data?.folders) && data.folders.length > 0 ? data.folders : starterWorkspace.folders;
+  const folderIds = new Set(folders.map((folder) => folder.id));
+  const defaultFolderId = folders[0].id;
+  const files = Array.isArray(data?.files) && data.files.length > 0
+    ? data.files.map((file) => ({
+        ...file,
+        folderId: folderIds.has(file.folderId) ? file.folderId : defaultFolderId,
+        updatedAt: Number(file.updatedAt) || Date.now(),
+        source: file.source === "local" ? "local" : "workspace",
+      }))
+    : starterWorkspace.files.map((file) => ({
+        ...file,
+        folderId: defaultFolderId,
+      }));
+
+  const activeId = files.some((file) => file.id === data?.activeId) ? data.activeId : files[0].id;
+  const expandedFolders = Array.isArray(data?.expandedFolders)
+    ? [...new Set(data.expandedFolders.filter((id) => folderIds.has(id)))]
+    : [defaultFolderId];
+
+  if (!expandedFolders.length) {
+    expandedFolders.push(defaultFolderId);
+  }
+
+  return {
+    activeId,
+    activeFolderId: folderIds.has(data?.activeFolderId) ? data.activeFolderId : defaultFolderId,
+    sidebarWidth: clamp(Number(data?.sidebarWidth) || 280, MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH),
+    panelRatio: clamp(Number(data?.panelRatio) || 0.5, 0.32, 0.68),
+    expandedFolders,
+    folders,
+    files,
+  };
+}
+
+function normalizeWorkspaceName(name) {
+  return String(name || "").trim().replace(/\s+/g, " ").slice(0, 36);
+}
+
+function getWorkspaceLabel(workspace) {
+  const rootFolderNames = (workspace?.data?.folders || [])
+    .filter((folder) => !folder.parentId)
+    .map((folder) => normalizeFolderName(folder.name));
+
+  if (!rootFolderNames.length) {
+    return normalizeWorkspaceName(workspace?.name) || "未命名工作区";
+  }
+
+  return rootFolderNames[0];
+}
+
+function nextWorkspaceName() {
+  const existing = new Set(workspaceManager?.workspaces?.map((workspace) => workspace.name) || []);
+  let index = 1;
+  let candidate = `工作区 ${index}`;
+  while (existing.has(candidate)) {
+    index += 1;
+    candidate = `工作区 ${index}`;
+  }
+  return candidate;
+}
+
 function renderFileTree() {
   elements.fileTree.innerHTML = "";
+
+  if (!state.folders.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.innerHTML = [
+      "<strong>当前工作区还是空的</strong>",
+      "<span>你可以直接打开文件夹，或者先从工作区列表切换到已有工作区。</span>",
+    ].join("");
+    elements.fileTree.appendChild(empty);
+    return;
+  }
 
   getRootFolders()
     .sort(sortByName)
@@ -413,18 +783,38 @@ function buildFileNode(file, depth) {
 function renderActiveFile() {
   const activeFile = getActiveFile();
   if (!activeFile) {
+    elements.titleInput.value = "";
+    elements.titleInput.dataset.originalName = "";
+    elements.titleInput.readOnly = true;
+    elements.titleInput.placeholder = "当前工作区未打开文件";
+    elements.titleInput.title = "";
+    elements.editor.value = "";
+    elements.editor.disabled = true;
+    elements.editor.placeholder = "新建的是空工作区。请从左上角工作区列表切换，或使用“打开文件夹”接入目录。";
+    elements.preview.innerHTML = [
+      '<div class="empty-state">',
+      "<strong>空工作区</strong>",
+      "<span>这里还没有文件。你可以打开一个本地文件夹，或者从工作区列表进入已有目录。</span>",
+      "</div>",
+    ].join("");
+    elements.wordCount.textContent = "0 字";
+    elements.deleteBtn.disabled = true;
     return;
   }
 
   elements.titleInput.value = activeFile.name;
   elements.titleInput.dataset.originalName = activeFile.name;
   elements.titleInput.readOnly = false;
+  elements.titleInput.placeholder = "";
   elements.titleInput.title = activeFile.source === "local" && !runtime.folderHandles.has(activeFile.folderId)
     ? "这个本地文件缺少父目录权限，暂时不能在网页内重命名"
     : "";
   elements.editor.value = activeFile.content;
+  elements.editor.disabled = false;
+  elements.editor.placeholder = "开始写作...";
   elements.preview.innerHTML = renderMarkdown(activeFile.content);
   elements.wordCount.textContent = `${countWords(activeFile.content)} 字`;
+  elements.deleteBtn.disabled = false;
 }
 
 function getActiveFile() {
@@ -442,14 +832,12 @@ async function createFile(parentFolderId = state.activeFolderId || getActiveFile
   const name = nextUntitledName(resolvedFolderId);
   let fileHandle = null;
 
-  if (parentHandle) {
-    try {
-      fileHandle = await parentHandle.getFileHandle(name, { create: true });
-    } catch (error) {
-      elements.saveIndicator.textContent = "创建失败";
-      console.error("Failed to create local file", error);
-      return;
-    }
+  try {
+    fileHandle = await parentHandle.getFileHandle(name, { create: true });
+  } catch (error) {
+    elements.saveIndicator.textContent = "创建失败";
+    console.error("Failed to create local file", error);
+    return;
   }
 
   state.files.unshift({
@@ -461,14 +849,12 @@ async function createFile(parentFolderId = state.activeFolderId || getActiveFile
     source: "local",
   });
 
-  if (fileHandle) {
-    runtime.fileHandles.set(id, fileHandle);
-    try {
-      await writeFileHandle(fileHandle, "");
-    } catch (error) {
-      elements.saveIndicator.textContent = "初始化失败";
-      console.error("Failed to initialize local file", error);
-    }
+  runtime.fileHandles.set(id, fileHandle);
+  try {
+    await writeFileHandle(fileHandle, "");
+  } catch (error) {
+    elements.saveIndicator.textContent = "初始化失败";
+    console.error("Failed to initialize local file", error);
   }
   state.activeId = id;
   state.activeFolderId = resolvedFolderId;
@@ -490,14 +876,12 @@ async function createFolder(parentFolderId = state.activeFolderId || getActiveFi
   }
   let folderHandle = null;
 
-  if (resolvedParentId && parentHandle) {
-    try {
-      folderHandle = await parentHandle.getDirectoryHandle(name, { create: true });
-    } catch (error) {
-      elements.saveIndicator.textContent = "创建失败";
-      console.error("Failed to create local folder", error);
-      return;
-    }
+  try {
+    folderHandle = await parentHandle.getDirectoryHandle(name, { create: true });
+  } catch (error) {
+    elements.saveIndicator.textContent = "创建失败";
+    console.error("Failed to create local folder", error);
+    return;
   }
 
   state.folders.push({
@@ -506,9 +890,7 @@ async function createFolder(parentFolderId = state.activeFolderId || getActiveFi
     parentId: resolvedParentId,
   });
 
-  if (folderHandle) {
-    runtime.folderHandles.set(id, folderHandle);
-  }
+  runtime.folderHandles.set(id, folderHandle);
   state.activeFolderId = id;
   state.expandedFolders.push(id);
   if (resolvedParentId) {
@@ -601,10 +983,6 @@ function selectFolder(folderId) {
 
 function isFolderExpanded(folderId) {
   return state.expandedFolders.includes(folderId);
-}
-
-function persistWorkspace() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
 function markSaving() {
@@ -804,7 +1182,16 @@ function importFiles(event) {
   }
 
   Promise.all(files.map((file) => readTextFile(file))).then((entries) => {
-    const targetFolderId = getActiveFile()?.folderId || getDefaultFolderId();
+    let targetFolderId = getActiveFile()?.folderId || getDefaultFolderId();
+    if (!targetFolderId) {
+      targetFolderId = crypto.randomUUID();
+      state.folders.push({
+        id: targetFolderId,
+        name: "Imported Files",
+        parentId: null,
+      });
+      state.expandedFolders.push(targetFolderId);
+    }
     entries.forEach(({ file, content }) => {
       state.files.unshift({
         id: crypto.randomUUID(),
@@ -826,7 +1213,21 @@ function importFiles(event) {
 
 function importFolder(event) {
   const files = Array.from(event.target.files || []).filter((file) => /\.(md|markdown|txt)$/i.test(file.name));
+  const importMode = runtime.folderImportMode;
+  runtime.folderImportMode = "current";
   if (!files.length) {
+    elements.folderInput.value = "";
+    return;
+  }
+
+  if (importMode === "workspace") {
+    resolveWorkspacePayload(buildWorkspaceFromFileList(files)).then((workspacePayload) => {
+      const workspaceName = workspacePayload.data.folders[0]?.name || nextWorkspaceName();
+      const workspace = createWorkspaceRecord(workspaceName, workspacePayload.data);
+      workspaceManager.workspaces.unshift(workspace);
+      activateWorkspace(workspace.id, workspacePayload);
+      elements.folderInput.value = "";
+    });
     return;
   }
 
@@ -895,6 +1296,84 @@ function readTextFile(file) {
   });
 }
 
+function buildWorkspaceFromFileList(fileList) {
+  const files = Array.from(fileList).filter((file) => /\.(md|markdown|txt)$/i.test(file.name));
+  const topFolderName = normalizeFolderName(files[0]?.webkitRelativePath.split("/")[0] || "Imported Folder");
+  const rootImportId = crypto.randomUUID();
+  const workspace = {
+    activeId: null,
+    activeFolderId: rootImportId,
+    sidebarWidth: 280,
+    panelRatio: 0.5,
+    expandedFolders: [rootImportId],
+    folders: [
+      {
+        id: rootImportId,
+        name: topFolderName,
+        parentId: null,
+      },
+    ],
+    files: [],
+  };
+  const folderMap = new Map([[topFolderName, rootImportId]]);
+
+  files.forEach((file) => {
+    const parts = file.webkitRelativePath.split("/");
+    const relativeFolders = parts.slice(1, -1);
+    let parentId = rootImportId;
+    let currentPath = topFolderName;
+
+    relativeFolders.forEach((segment) => {
+      currentPath = `${currentPath}/${segment}`;
+      if (!folderMap.has(currentPath)) {
+        const folderId = crypto.randomUUID();
+        workspace.folders.push({
+          id: folderId,
+          name: normalizeFolderName(segment),
+          parentId,
+        });
+        workspace.expandedFolders.push(folderId);
+        folderMap.set(currentPath, folderId);
+      }
+      parentId = folderMap.get(currentPath);
+    });
+
+    workspace.files.push({
+      id: crypto.randomUUID(),
+      folderId: parentId,
+      name: normalizeFileName(parts.at(-1)) || nextUntitledName(parentId),
+      content: "",
+      updatedAt: Date.now(),
+      source: "workspace",
+      _rawFile: file,
+    });
+  });
+
+  const readers = workspace.files.map((entry) => readTextFile(entry._rawFile));
+  return {
+    data: workspace,
+    pendingReads: readers,
+    fileHandles: new Map(),
+    folderHandles: new Map(),
+  };
+}
+
+async function resolveWorkspacePayload(payload) {
+  if (!payload?.pendingReads?.length) {
+    return payload;
+  }
+
+  const entries = await Promise.all(payload.pendingReads);
+  payload.data.files = payload.data.files.map((file, index) => {
+    const nextFile = { ...file };
+    delete nextFile._rawFile;
+    nextFile.content = entries[index]?.content || "";
+    return nextFile;
+  });
+  delete payload.pendingReads;
+  return payload;
+}
+
 async function ingestPickedFiles(handles) {
   let rootFolderId = state.folders.find((folder) => folder.name === "Picked Files" && folder.parentId === null)?.id;
   if (!rootFolderId) {
@@ -948,6 +1427,74 @@ async function ingestPickedDirectory(directoryHandle) {
   ensureFolderPathExpanded(rootFolderId);
   persistWorkspace();
   render();
+}
+
+async function buildWorkspaceFromDirectoryHandle(directoryHandle) {
+  const rootFolderId = crypto.randomUUID();
+  const workspace = {
+    activeId: null,
+    activeFolderId: rootFolderId,
+    sidebarWidth: 280,
+    panelRatio: 0.5,
+    expandedFolders: [rootFolderId],
+    folders: [
+      {
+        id: rootFolderId,
+        name: directoryHandle.name,
+        parentId: null,
+      },
+    ],
+    files: [],
+  };
+  const folderHandles = new Map([[rootFolderId, directoryHandle]]);
+  const fileHandles = new Map();
+
+  await collectDirectoryHandle(directoryHandle, rootFolderId, workspace, folderHandles, fileHandles);
+
+  const newestFile = workspace.files.at(-1);
+  if (newestFile) {
+    workspace.activeId = newestFile.id;
+    workspace.activeFolderId = newestFile.folderId;
+  }
+
+  return {
+    data: workspace,
+    fileHandles,
+    folderHandles,
+  };
+}
+
+async function collectDirectoryHandle(directoryHandle, parentFolderId, workspace, folderHandles, fileHandles) {
+  for await (const entry of directoryHandle.values()) {
+    if (entry.kind === "directory") {
+      const folderId = crypto.randomUUID();
+      workspace.folders.push({
+        id: folderId,
+        name: entry.name,
+        parentId: parentFolderId,
+      });
+      workspace.expandedFolders.push(folderId);
+      folderHandles.set(folderId, entry);
+      await collectDirectoryHandle(entry, folderId, workspace, folderHandles, fileHandles);
+      continue;
+    }
+
+    if (!/\.(md|markdown|txt)$/i.test(entry.name)) {
+      continue;
+    }
+
+    const file = await entry.getFile();
+    const fileId = crypto.randomUUID();
+    workspace.files.push({
+      id: fileId,
+      folderId: parentFolderId,
+      name: normalizeFileName(entry.name),
+      content: await file.text(),
+      updatedAt: Date.now(),
+      source: "local",
+    });
+    fileHandles.set(fileId, entry);
+  }
 }
 
 async function walkDirectoryHandle(directoryHandle, parentFolderId) {
@@ -1524,7 +2071,7 @@ function formatInline(text) {
 }
 
 function escapeHtml(value) {
-  return value
+  return String(value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

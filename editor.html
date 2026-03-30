@@ -11,10 +11,28 @@
       <aside class="sidebar">
         <div class="panel-head">
           <div>
-            <p class="eyebrow">Workspace</p>
+            <p class="eyebrow">工作区</p>
             <h1>TriMark</h1>
           </div>
-          <div class="head-actions"></div>
+          <div class="head-actions">
+            <div class="menu-anchor workspace-anchor">
+              <button id="workspace-menu-btn" class="secondary-btn" type="button">工作区</button>
+              <div id="workspace-menu" class="floating-menu workspace-menu" hidden>
+                <div class="workspace-menu-head">
+                  <p class="workspace-kicker">工作区</p>
+                  <strong id="workspace-current-name">TriMark</strong>
+                </div>
+                <button id="workspace-open-folder-action" class="floating-menu-item" type="button">打开已有工作区文件夹</button>
+                <button id="workspace-create-action" class="floating-menu-item" type="button">新建空工作区</button>
+                <button id="workspace-open-window-action" class="floating-menu-item" type="button">在新窗口打开当前工作区</button>
+                <button id="workspace-close-action" class="floating-menu-item" type="button">关闭当前工作区</button>
+                <div class="workspace-list-wrap">
+                  <p class="workspace-kicker">工作区列表</p>
+                  <div id="workspace-list" class="workspace-list"></div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="sidebar-tools">
